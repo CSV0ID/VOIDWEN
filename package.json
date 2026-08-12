@@ -1,0 +1,8 @@
+{
+  "name": "voidwen",
+  "version": "0.2.0",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "description": "Unified prose + code minimizer with client-side wenyan translation."
+}
