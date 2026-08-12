@@ -5,9 +5,20 @@ Bug found and confirmed by testing: gettextasparagrapharray() caches by URN only
 and ignores setlanguage() on a second call in the same process — calling zh then
 en back-to-back returned identical text both times (confirmed: zh[0] == en[0]).
 
-Fix: fetch each language in its own subprocess. Separate processes cannot share
-whatever cache causes this, which sidesteps the bug without needing to reverse-
-engineer the package's internals or guess at the raw HTTP API's JSON shape.
+Fix attempted: fetch each language in its own subprocess, on the theory that
+separate processes can't share whatever cache causes this. That fix is UNVERIFIED
+against live ctext -- it has never actually been run against the real API, only
+reasoned about. Separately, `if=en` may control ctext's UI language rather than
+which translation edition's text is returned, in which case no combination of
+setlanguage()/subprocess isolation exposes English text at all through this path.
+
+Given both of those open questions, model/scrape/legge_scraper.py is the
+recommended path for zh->en pairs: it drops ctext's English translation entirely
+and uses Legge's public-domain translations from Project Gutenberg instead,
+aligned to ctext's zh-only output (a single-language fetch, so the caching bug
+above can't trigger) by chapter:verse number. This file is kept for anyone who
+wants to test the subprocess theory against a live ctext instance, and because
+its zh-only fetch path is reused by legge_scraper.py's own worker.
 """
 from __future__ import annotations
 
