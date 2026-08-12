@@ -23,7 +23,7 @@ setapikey("demo")
 # Add more from https://ctext.org (URN shown bottom-right of each text page).
 DEFAULT_URNS = [
     "ctp:analects",
-    "ctp:mencius",
+    "ctp:mengzi",
     "ctp:zhuangzi",
     "ctp:dao-de-jing",
 ]
