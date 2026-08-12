@@ -1,0 +1,12 @@
+{
+  "name": "voidwen",
+  "owner": { "name": "CS VOID LABS (CSV0ID)" },
+  "plugins": [
+    {
+      "name": "voidwen",
+      "source": "./",
+      "description": "Unified prose + code minimizer. /voidwen sets both layers.",
+      "version": "0.2.0"
+    }
+  ]
+}
