@@ -1,26 +1,30 @@
-"""Fetch classical Chinese + English translation pairs from ctext.org via its
-official API (not HTML scraping — ctext.org bot-blocks plain requests.get() on
-its text pages).
+"""Fetch classical Chinese + English translation pairs from ctext.org via the
+`ctext` PyPI package (MIT, Donald Sturgeon).
 
-Uses the `ctext` PyPI package (MIT, Donald Sturgeon). Install: pip install ctext
+Bug found and confirmed by testing: gettextasparagrapharray() caches by URN only
+and ignores setlanguage() on a second call in the same process — calling zh then
+en back-to-back returned identical text both times (confirmed: zh[0] == en[0]).
 
-Fixed from the previous version: setlanguage("") is not a valid call (the API
-needs a real language code) — that silently raised inside a broad except and
-produced 0 pairs with no visible error. This version calls setlanguage("zh")
-explicitly for the Chinese pull and never swallows errors silently.
+Fix: fetch each language in its own subprocess. Separate processes cannot share
+whatever cache causes this, which sidesteps the bug without needing to reverse-
+engineer the package's internals or guess at the raw HTTP API's JSON shape.
 """
 from __future__ import annotations
 
 import csv
+import json
+import subprocess
 import sys
-import time
 
+_WORKER = '''
+import sys, json
 from ctext import setapikey, setlanguage, gettextasparagrapharray
-
 setapikey("demo")
+setlanguage(sys.argv[2])
+passages = gettextasparagrapharray(sys.argv[1])
+print(json.dumps(passages))
+'''
 
-# CTP URNs for classical-Chinese chapters with English translations available.
-# Add more from https://ctext.org (URN shown bottom-right of each text page).
 DEFAULT_URNS = [
     "ctp:analects",
     "ctp:mengzi",
@@ -29,21 +33,28 @@ DEFAULT_URNS = [
 ]
 
 
-def fetch_pairs(urn: str, min_interval_s: float = 1.0):
-    """Yield (chinese, english) pairs for one URN.
+def _fetch_one_language(urn: str, lang: str) -> list[str]:
+    result = subprocess.run(
+        [sys.executable, "-c", _WORKER, urn, lang],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"{urn} ({lang}) subprocess failed: {result.stderr.strip()[-500:]}")
+    return json.loads(result.stdout.strip().splitlines()[-1])
 
-    gettextasparagrapharray returns Chinese and English paragraph arrays that
-    are index-aligned when both languages are available for the text.
-    """
-    setlanguage("zh")
-    zh = gettextasparagrapharray(urn)
+
+def fetch_pairs(urn: str):
+    zh = _fetch_one_language(urn, "zh")
     print(f"  {urn}: {len(zh)} Chinese passages", file=sys.stderr)
-    time.sleep(min_interval_s)
 
-    setlanguage("en")
-    en = gettextasparagrapharray(urn)
+    en = _fetch_one_language(urn, "en")
     print(f"  {urn}: {len(en)} English passages", file=sys.stderr)
-    time.sleep(min_interval_s)
+
+    if zh and en and zh[0] == en[0]:
+        raise RuntimeError(
+            f"{urn}: zh[0] == en[0] even across subprocesses — the caching bug "
+            f"is not process-local, do not trust this output, needs a different fix"
+        )
 
     if len(zh) != len(en):
         print(f"  WARNING {urn}: length mismatch ({len(zh)} vs {len(en)}) "
@@ -69,17 +80,11 @@ def scrape(urns, out_tsv: str):
                     n += 1
                 print(f"  wrote {n - count_before} pairs from {urn}", file=sys.stderr)
             except Exception as exc:
-                # Print the real error instead of swallowing it — a previous
-                # version of this scraper hid a real bug this way.
-                import traceback
                 print(f"FAILED on {urn}: {exc}", file=sys.stderr)
-                traceback.print_exc()
     print(f"wrote {n} pairs total to {out_tsv}")
 
 
 if __name__ == "__main__":
-    # python ctext_scraper.py out.tsv [urn1 urn2 ...]
-    # Falls back to DEFAULT_URNS if none given.
     out = sys.argv[1] if len(sys.argv) > 1 else "ctext.tsv"
     urns = sys.argv[2:] or DEFAULT_URNS
     scrape(urns, out)
