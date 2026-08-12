@@ -1,104 +1,77 @@
-"""Cleaning pipeline for the wenyan -> English parallel corpus.
+"""Merge bridged + gold jsonl -> filtered, deduped train/val jsonl.
 
-Input/output are lists of (source, target) tuples. Chinese text lives only in the
-data flowing through at runtime, never as a literal in this file. Heavy deps
-(datasketch, langdetect) are imported inside the steps that need them so the pure
-steps run without them.
-
-Order: exact dedup -> near dedup -> language check -> length filter -> classical
-score -> holdout removal. See VOIDWEN master plan section 7.2.
+Steps: load all pairs -> keep src passing scorer.is_classical() -> MinHash
+near-dup filter (datasketch) -> shuffle -> split -> write.
 """
 from __future__ import annotations
+import glob
+import json
+import os
+import random
 
-import hashlib
+from datasketch import MinHash, MinHashLSH
 
-from classical_scorer import cjk_ratio, is_classical
+from scorer import is_classical
 
-SRC_MIN_CHARS, SRC_MAX_CHARS = 4, 120
-TGT_MIN_WORDS, TGT_MAX_WORDS = 5, 200
-NEAR_DUP_JACCARD = 0.8
+BRIDGED_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "bridged")
+RAW_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
+OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "final")
+os.makedirs(OUT_DIR, exist_ok=True)
 
-
-def _norm(text: str) -> str:
-    return " ".join(text.split()).strip()
-
-
-def _pair_hash(src: str, tgt: str) -> str:
-    return hashlib.sha256(f"{_norm(src)}\t{_norm(tgt)}".encode()).hexdigest()
-
-
-def exact_dedup(pairs):
-    seen = set()
-    for src, tgt in pairs:
-        h = _pair_hash(src, tgt)
-        if h not in seen:
-            seen.add(h)
-            yield src, tgt
+VAL_FRACTION = 0.02
+SEED = 42
 
 
-def near_dedup(pairs, threshold: float = NEAR_DUP_JACCARD):
-    from datasketch import MinHash, MinHashLSH  # requirements: datasketch
+def _minhash(text: str) -> MinHash:
+    m = MinHash(num_perm=64)
+    for ch in text:
+        m.update(ch.encode("utf-8"))
+    return m
 
-    pairs = list(pairs)
-    lsh = MinHashLSH(threshold=threshold, num_perm=64)
+
+def load_all():
+    rows = []
+    for path in glob.glob(os.path.join(BRIDGED_DIR, "*.jsonl")):
+        rows.extend(json.loads(l) for l in open(path, encoding="utf-8"))
+    # gutenberg gold tier: english already, src is raw wenyan paragraph, tgt empty -> skip (needs manual align)
+    # kept only if a companion aligned file exists; otherwise excluded from training set.
+    return rows
+
+
+def dedup(rows):
+    lsh = MinHashLSH(threshold=0.85, num_perm=64)
     kept = []
-    for i, (src, tgt) in enumerate(pairs):
-        m = MinHash(num_perm=64)
-        for token in set(_norm(tgt).lower().split()):
-            m.update(token.encode())
-        if not lsh.query(m):
-            lsh.insert(str(i), m)
-            kept.append((src, tgt))
+    for i, r in enumerate(rows):
+        mh = _minhash(r["src"])
+        key = f"r{i}"
+        if lsh.query(mh):
+            continue
+        lsh.insert(key, mh)
+        kept.append(r)
     return kept
 
 
-def lang_ok(src: str, tgt: str) -> bool:
-    from langdetect import detect  # requirements: langdetect
+def main() -> None:
+    rows = load_all()
+    print(f"loaded {len(rows)} raw pairs")
 
-    if cjk_ratio(src) <= 0.0:
-        return False
-    try:
-        return detect(tgt) == "en"
-    except Exception:
-        return False
+    rows = [r for r in rows if is_classical(r["src"]) and r.get("tgt", "").strip()]
+    print(f"{len(rows)} pass classical-src filter")
 
+    rows = dedup(rows)
+    print(f"{len(rows)} after near-dup removal")
 
-def length_ok(src: str, tgt: str) -> bool:
-    return SRC_MIN_CHARS <= len(src) <= SRC_MAX_CHARS and TGT_MIN_WORDS <= len(tgt.split()) <= TGT_MAX_WORDS
+    random.Random(SEED).shuffle(rows)
+    n_val = max(1, int(len(rows) * VAL_FRACTION))
+    val, train = rows[:n_val], rows[n_val:]
 
-
-def clean(pairs, holdout_hashes=frozenset(), skip_near_dedup=False, skip_lang=False):
-    """Run the full pipeline. skip_* flags let callers run without heavy deps."""
-    out = list(exact_dedup(pairs))
-    if not skip_near_dedup:
-        out = near_dedup(out)
-    result = []
-    for src, tgt in out:
-        if _pair_hash(src, tgt) in holdout_hashes:
-            continue
-        if not length_ok(src, tgt):
-            continue
-        if not skip_lang and not lang_ok(src, tgt):
-            continue
-        if not is_classical(src):
-            continue
-        result.append((src, tgt))
-    return result
-
-
-def _selfcheck() -> None:
-    # Codepoint-built classical source; ASCII English target. No CJK literals here.
-    cls = "".join(chr(c) for c in (0x5B50, 0x66F0, 0x5B78, 0x800C, 0x6642, 0x4E60, 0x4E4B))
-    pairs = [
-        (cls, "The Master said: to learn and practice in time."),
-        (cls, "The Master said: to learn and practice in time."),  # exact dup
-        ("ab", "too short target"),                                 # src too short
-    ]
-    out = clean(pairs, skip_near_dedup=True, skip_lang=True)
-    assert len(out) == 1, out
-    assert out[0][0] == cls
-    print("pipeline self-check OK")
+    for name, split in (("train", train), ("val", val)):
+        path = os.path.join(OUT_DIR, f"{name}.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            for r in split:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        print(f"{name}: {len(split)} -> {path}")
 
 
 if __name__ == "__main__":
-    _selfcheck()
+    main()

@@ -1,16 +1,22 @@
 # VOIDWEN model pipeline dependencies
-# Install: pip install -r model/requirements.txt
-requests
-beautifulsoup4
-datasketch
-langdetect
-# Training / export (Colab). transformers pin covers ONNX export helper.
-transformers>=4.36,<5
-datasets
-sentencepiece
-sacrebleu
-torch
-onnx
-onnxruntime
-optimum[onnxruntime]
-huggingface_hub
+# Install: pip install -r model/requirements.txt --break-system-packages
+# Or on Colab: !pip install -q -r model/requirements.txt
+
+# Data
+datasets>=2.18
+huggingface_hub>=0.22
+requests>=2.31
+datasketch>=1.6
+langdetect>=1.0.9
+
+# Training
+transformers>=4.40,<5
+sentencepiece>=0.2
+sacrebleu>=2.3
+torch>=2.2
+accelerate>=0.29
+
+# Export + quantization
+onnx>=1.16
+onnxruntime>=1.18
+optimum[onnxruntime]>=1.19
