@@ -1,0 +1,7 @@
+{
+  "name": "voidwen",
+  "version": "0.1.0",
+  "description": "Unified prose + code minimizer. /voidwen sets both layers. Adapts caveman (prose) + ponytail (code).",
+  "author": { "name": "CS VOID LABS (CSV0ID)" },
+  "license": "MIT"
+}
