@@ -48,11 +48,20 @@ GUTENBERG_TEXT_URLS = {
     "ctp:mengzi": "https://www.gutenberg.org/cache/epub/4646/pg4646.txt",
 }
 
-# Legge numbers verses as "<chapter>. <text>" under headings like "CHAPTER I."
-# or "BOOK I." This pattern is a starting point, not a verified constant --
-# check it against the actual fetched text (see module docstring).
-CHAPTER_HEADING_RE = re.compile(r"^\s*(?:CHAPTER|BOOK)\s+([IVXLCDM]+)\.?\s*$", re.IGNORECASE)
-VERSE_RE = re.compile(r"^\s*(\d+)\.\s+(.*\S)\s*$")
+# Verified against the live Gutenberg text for pg3330 (2026-08): chapter markers
+# are inline as "CHAP. II. 1. The philosopher..." -- not on their own line, and
+# not "CHAPTER"/"BOOK" as first guessed. Verse numbers after the first verse of
+# a chapter appear as "N. text" on their own; chapters with only one verse (e.g.
+# "CHAP. III. The Master said...") have no verse number at all -- that whole
+# chapter's text is verse 1 implicitly.
+#
+# Because of that irregularity this does a whole-text scan for marker tokens
+# rather than a line-by-line match: split first on chapter markers, then within
+# each chapter's text split on verse markers (defaulting to a single implicit
+# verse 1 when no verse marker is found). Still a heuristic -- re-check against
+# whatever Gutenberg text a given URN maps to before trusting it at scale.
+CHAPTER_SPLIT_RE = re.compile(r"CHAP\.\s+([IVXLCDM]+)\.\s*")
+VERSE_SPLIT_RE = re.compile(r"(?:(?<=\s)|^)(\d+)\.\s+(?=[A-Z\"'])")
 
 _CTEXT_WORKER = '''
 import sys, json
@@ -78,40 +87,43 @@ def fetch_ctext_zh(urn: str) -> list[str]:
 def parse_legge_verses(raw_text: str) -> dict[str, str]:
     """Return {"chapter.verse": english_text} parsed out of Gutenberg plain text.
 
-    Roman-numeral chapter headings reset the verse counter's chapter component;
-    verse numbers are Legge's own "N. ..." markers within a chapter. Lines that
-    don't match either pattern (front matter, footnotes, blank lines) are
-    skipped rather than guessed at.
+    Whitespace is collapsed first so markers can be matched regardless of line
+    wrapping, then the text is split on chapter markers, then each chapter's
+    text is split on verse markers (a chapter with no verse marker is treated
+    as a single implicit verse 1). See module-level comment for why this scans
+    rather than matching line-by-line.
     """
+    norm = re.sub(r"\s+", " ", raw_text)
+
+    chapter_parts = CHAPTER_SPLIT_RE.split(norm)
+    # re.split with a capturing group yields [pre, chapter1, text1, chapter2, text2, ...]
     verses: dict[str, str] = {}
-    chapter = None
-    buf_key, buf_text = None, []
+    for i in range(1, len(chapter_parts) - 1, 2):
+        chapter = chapter_parts[i]
+        chapter_text = chapter_parts[i + 1]
 
-    def flush():
-        if buf_key is not None:
-            text = " ".join(buf_text).strip()
+        verse_tokens = VERSE_SPLIT_RE.split(chapter_text)
+        if len(verse_tokens) == 1:
+            # No verse marker found -- whole chapter is one implicit verse.
+            text = verse_tokens[0].strip()
             if text:
-                verses[buf_key] = text
-
-    for line in raw_text.splitlines():
-        heading = CHAPTER_HEADING_RE.match(line)
-        if heading:
-            flush()
-            chapter = heading.group(1)
-            buf_key, buf_text = None, []
+                verses[f"{chapter}.1"] = text
             continue
 
-        verse = VERSE_RE.match(line)
-        if verse and chapter is not None:
-            flush()
-            buf_key = f"{chapter}.{verse.group(1)}"
-            buf_text = [verse.group(2)]
-            continue
+        # verse_tokens = [pre_first_marker, num1, text1, num2, text2, ...]
+        # pre_first_marker is usually empty/whitespace since the first verse
+        # marker directly follows "CHAP. N." -- keep it only if non-trivial
+        # (e.g. stray text between the chapter marker and the first "1.").
+        lead = verse_tokens[0].strip()
+        if lead:
+            verses[f"{chapter}.0"] = lead  # rare leading fragment, not a real verse
 
-        if buf_key is not None and line.strip():
-            buf_text.append(line.strip())
+        for j in range(1, len(verse_tokens) - 1, 2):
+            verse_num = verse_tokens[j]
+            text = verse_tokens[j + 1].strip()
+            if text:
+                verses[f"{chapter}.{verse_num}"] = text
 
-    flush()
     return verses
 
 
