@@ -4,5 +4,11 @@
   "type": "module",
   "private": true,
   "license": "MIT",
-  "description": "Unified prose + code minimizer with client-side wenyan translation."
+  "description": "Unified prose + code minimizer with client-side wenyan translation.",
+  "bin": {
+    "voidwen-translate": "./scripts/translate_wenyan.js"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.1"
+  }
 }

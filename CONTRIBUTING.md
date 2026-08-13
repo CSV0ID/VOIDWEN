@@ -16,8 +16,4 @@ Run all tests:
 
 ```
 python tests/test_skill.py
-python model/clean/classical_scorer.py
-python model/clean/pipeline.py
-node tests/test_detection.js
-node tests/test_pipeline.js
 ```

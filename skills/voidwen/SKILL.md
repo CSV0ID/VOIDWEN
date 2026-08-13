@@ -148,13 +148,15 @@ leave it. If the user wants the full version, build it, no re-arguing.
 
 ---
 
-## Layer 3 — Client pipeline (browser only)
+## Layer 3 — Wenyan translation (terminal, on request)
 
-Document ingestion (PDF/DOCX/XLSX/HTML/image → markdown), wenyan detection, and
-wenyan → English translation all run in the browser on the user's device — zero
-server, zero API, zero tokens. The agent never receives raw file bytes and never
-sees a translation request; these are silent background operations. The agent's only
-job is to emit wenyan when that level is set. See `web/` for the implementation.
+`/voidwen-translate <text>` translates real wenyan (Classical Chinese) to English
+via a real two-hop model chain (wenyan -> modern Chinese -> English) run locally
+in the terminal — see `scripts/translate_wenyan.js` and
+`scripts/hop1_wenyan_to_modern.py` for the implementation. This is a translation
+tool the person invokes explicitly; it is not triggered automatically by the
+`wenyan` prose level above, which makes the agent *write* in classical Chinese
+rather than translate it.
 
 ## Commands
 

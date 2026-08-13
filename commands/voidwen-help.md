@@ -22,6 +22,12 @@ Code layer — YAGNI ladder, stop at first rung that holds: (1) needed at all?
 (6) one line? (7) minimum that works. Cut corners marked with `voidwen:` comments.
 Never simplify away validation, error handling, security, accessibility.
 
-Commands: `/voidwen [lite|full|ultra|off]`, `/voidwen-help`.
+Commands: `/voidwen [lite|full|ultra|off]`, `/voidwen-help`, `/voidwen-translate [wenyan text]`.
+
+`/voidwen-translate` runs a real local ML model (not a guess) to translate
+wenyan -> English: wenyan -> modern Chinese -> English, two chained ONNX
+models via `scripts/translate_wenyan.js`. First run downloads ~450MB,
+cached after. Different from the `wenyan` prose level above, which makes
+Claude *write* in classical Chinese rather than translate it.
 
 Full rules: `skills/voidwen/SKILL.md`. Attribution: `THIRD_PARTY_NOTICES.md`.
